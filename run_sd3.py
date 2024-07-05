@@ -1,8 +1,10 @@
 import os
 import argparse
 import torch
-from utils.viz_utils import visualize_and_save_features_pca
 from src.sd3_pipeline import StableDiffusion3Pipeline
+
+from utils.viz_utils import *
+from utils.ops_utils import create_custom_conv_kernel, CustomConv2D
 
 def main(args):
 
@@ -22,7 +24,7 @@ def main(args):
     image = output['images'][0]
     latents = output['intermediate_latents']
 
-    os.makedirs(os.path.join(args.output_path, "pca_latents"), exist_ok=True)
+    os.makedirs(args.output_path, exist_ok=True)
 
     args_dict = vars(args)
     with open(os.path.join(args.output_path, "args.txt"), "w") as f:
@@ -30,7 +32,16 @@ def main(args):
             f.write(f"{k}: {v}\n")
 
     for k, v in latents.items():
-        visualize_and_save_features_pca(v, k, os.path.join(args.output_path, "pca_latents"))
+        if args.spatial_divergence:
+            os.makedirs(os.path.join(args.output_path, "heatmap_latents_div"), exist_ok=True)
+            # compute difference with the 8 neighboring pixels (=latent features, to be exact)
+            divergence_conv = CustomConv2D(v.shape[1]).to("cuda").half()
+            v = divergence_conv(v)
+            v_l2 = torch.norm(v, p=2, dim=1, keepdim=True)
+            visualize_and_save_heatmap(v_l2, k, os.path.join(args.output_path, "heatmap_latents_div"))
+        else:
+            os.makedirs(os.path.join(args.output_path, "pca_latents"), exist_ok=True)
+            visualize_and_save_features_pca(v, k, os.path.join(args.output_path, "pca_latents"))
 
     image.save(os.path.join(args.output_path, "sample.png"))
 
@@ -45,6 +56,8 @@ if __name__ == "__main__":
     parser.add_argument("--height", '-H', type=int, default=1024, help="Height of the output image")
     parser.add_argument("--width", '-W', type=int, default=1024, help="Width of the output image")
     parser.add_argument("--output_path", '-o', type=str, default="outputs", help="Output path")
+
+    parser.add_argument("--spatial_divergence", action="store_true", help="Use spatial divergence")
     
     args = parser.parse_args()
 

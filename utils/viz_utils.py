@@ -3,6 +3,7 @@ import numpy as np
 from PIL import Image
 from math import sqrt
 from einops import rearrange
+import matplotlib.pyplot as plt
 from sklearn.decomposition import PCA
 from torchvision import transforms as T
 from transformers import AutoFeatureExtractor
@@ -32,3 +33,26 @@ def visualize_and_save_features_pca(features, t, save_dir):
         pca_img = Image.fromarray((pca_img * 255).astype(np.uint8))
         pca_img = T.Resize(512, interpolation=T.InterpolationMode.NEAREST)(pca_img)
         pca_img.save(os.path.join(save_dir, f"time_{t}.png"))
+
+def visualize_and_save_heatmap(features, t, save_dir):
+    '''
+    heatmap: torch.Tensor of shape (B, 1, H, W)
+    t: int, time step
+    save_dir: str, path to save the visualization
+    '''
+    features = features.squeeze().detach().cpu().numpy()
+    
+    # Create a heatmap using matplotlib
+    plt.figure(figsize=(5.12, 5.12), dpi=100)
+    plt.imshow(features, cmap='coolwarm', interpolation='nearest')
+    plt.axis('off')
+    plt.title('')
+    
+    # Save the heatmap as an image
+    save_path = os.path.join(save_dir, f"time_{t}.png")
+    plt.savefig(save_path, bbox_inches='tight', pad_inches=0)
+    plt.close()
+    
+    heatmap_image = Image.open(save_path)
+    heatmap_image = heatmap_image.resize((512, 512), Image.LANCZOS)
+    heatmap_image.save(save_path)  # Save the resized image

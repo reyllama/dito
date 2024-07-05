@@ -37,7 +37,6 @@ from diffusers.utils.torch_utils import randn_tensor
 from diffusers.pipelines.pipeline_utils import DiffusionPipeline
 from diffusers.pipelines.stable_diffusion_3.pipeline_output import StableDiffusion3PipelineOutput
 
-
 if is_torch_xla_available():
     import torch_xla.core.xla_model as xm
 
