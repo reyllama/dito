@@ -833,7 +833,6 @@ class StableDiffusion3Pipeline(DiffusionPipeline, SD3LoraLoaderMixin, FromSingle
         )
 
         intermediate_latents = dict()
-        intermediate_latents["1000"] = latents.clone().detach()
         print(f"Timesteps: {timesteps}")
 
         # 6. Denoising loop
@@ -864,7 +863,7 @@ class StableDiffusion3Pipeline(DiffusionPipeline, SD3LoraLoaderMixin, FromSingle
                 # compute the previous noisy sample x_t -> x_t-1
                 latents_dtype = latents.dtype
                 latents = self.scheduler.step(noise_pred, t, latents, return_dict=False)[0]
-                intermediate_latents[str(t.item())] = latents.clone().detach()
+                intermediate_latents[f"{t.item():.2f}"] = latents.clone().detach()
 
                 if latents.dtype != latents_dtype:
                     if torch.backends.mps.is_available():

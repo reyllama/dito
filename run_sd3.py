@@ -1,6 +1,7 @@
 import os
 import argparse
 import torch
+from utils.viz_utils import visualize_and_save_features_pca
 from src.sd3_pipeline import StableDiffusion3Pipeline
 
 def main(args):
@@ -20,10 +21,18 @@ def main(args):
 
     image = output['images'][0]
     latents = output['intermediate_latents']
-    print(latents)
-    
-    os.makedirs(args.output_path, exist_ok=True)
-    image.save(os.path.join(args.output_path, "output.png"))
+
+    os.makedirs(os.path.join(args.output_path, "pca_latents"), exist_ok=True)
+
+    args_dict = vars(args)
+    with open(os.path.join(args.output_path, "args.txt"), "w") as f:
+        for k, v in args_dict.items():
+            f.write(f"{k}: {v}\n")
+
+    for k, v in latents.items():
+        visualize_and_save_features_pca(v, k, os.path.join(args.output_path, "pca_latents"))
+
+    image.save(os.path.join(args.output_path, "sample.png"))
 
 if __name__ == "__main__":
     
