@@ -4,7 +4,7 @@ import torch
 from src.sd3_pipeline import StableDiffusion3Pipeline
 
 from utils.viz_utils import *
-from utils.ops_utils import create_custom_conv_kernel, CustomConv2D
+from utils.ops_utils import *
 
 def main(args):
 
@@ -39,6 +39,9 @@ def main(args):
             v = divergence_conv(v)
             v_l2 = torch.norm(v, p=2, dim=1, keepdim=True)
             visualize_and_save_heatmap(v_l2, k, os.path.join(args.output_path, "heatmap_latents_div"))
+        elif args.pca_highpass:
+            os.makedirs(os.path.join(args.output_path, "pca_highpass"), exist_ok=True)
+            visualize_and_save_pca_highpass(v, k, os.path.join(args.output_path, "pca_highpass"))
         else:
             os.makedirs(os.path.join(args.output_path, "pca_latents"), exist_ok=True)
             visualize_and_save_features_pca(v, k, os.path.join(args.output_path, "pca_latents"))
@@ -57,8 +60,10 @@ if __name__ == "__main__":
     parser.add_argument("--width", '-W', type=int, default=1024, help="Width of the output image")
     parser.add_argument("--output_path", '-o', type=str, default="outputs", help="Output path")
 
+    # experiments
     parser.add_argument("--spatial_divergence", action="store_true", help="Use spatial divergence")
-    
+    parser.add_argument("--pca_highpass", action="store_true", help="Use highpass pca features")
+   
     args = parser.parse_args()
 
     main(args)
