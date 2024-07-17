@@ -10,6 +10,11 @@ from transformers import AutoFeatureExtractor
 
 from utils.ops_utils import *
 
+def minmax_normalize(x):
+    x_min = x.min()
+    x_max = x.max()
+    return (x - x_min) / (x_max - x_min)
+
 def visualize_and_save_features_pca(features, t, save_dir):
     '''
     features: torch.Tensor of shape (B, C, H, W)
@@ -24,6 +29,7 @@ def visualize_and_save_features_pca(features, t, save_dir):
     # pca_features = pca_features.reshape(B, -1, 3)  # B x (H * W) x 3
     pca_features = get_feature_pca(features, n_components=3, return_type='np')
 
+    B = pca_features.shape[0]
 
     for i in range(B):
         pca_img = pca_features[i]  # (H * W) x 3
@@ -56,20 +62,26 @@ def visualize_and_save_as_image(features, t, save_dir, H=512, W=512, cmap=None, 
     heatmap_image = heatmap_image.resize((512, 512), Image.LANCZOS)
     heatmap_image.save(save_path)  # Save the resized image
 
-def visualize_and_save_pca_highpass(features, t, save_dir, threshold=0.1):
+def visualize_and_save_pca_highpass(features, t, save_dir, n_components=3, threshold=0.1):
     '''
     features: torch.Tensor of shape (B, C, H, W)
     t: int, time step
     save_dir: str, path to save the visualization
     '''
-    pca_features = get_feature_pca(features, n_components=3, return_type='pt')
+    pca_features = get_feature_pca(features, n_components=n_components, return_type='pt')
     
-    r_channel = high_pass_filter(pca_features[:, 0:1, :, :])
-    g_channel = high_pass_filter(pca_features[:, 1:2, :, :])
-    b_channel = high_pass_filter(pca_features[:, 2:3, :, :])
+    if n_components == 1:
+        image_back = high_pass_filter(pca_features[:, 0:1, :, :], threshold=threshold).squeeze().numpy()
 
-    # assuming that batch_size = 1
-    image_back = torch.cat((r_channel, g_channel, b_channel), dim=1).squeeze().permute(1, 2, 0).numpy()
+    elif n_components == 3:
+
+        r_channel = high_pass_filter(pca_features[:, 0:1, :, :])
+        g_channel = high_pass_filter(pca_features[:, 1:2, :, :])
+        b_channel = high_pass_filter(pca_features[:, 2:3, :, :])
+        r_channel, g_channel, b_channel = minmax_normalize(r_channel), minmax_normalize(g_channel), minmax_normalize(b_channel)
+
+        # assuming that batch_size = 1
+        image_back = torch.cat((r_channel, g_channel, b_channel), dim=1).squeeze().permute(1, 2, 0).numpy()
 
     visualize_and_save_as_image(image_back, t, save_dir)
 

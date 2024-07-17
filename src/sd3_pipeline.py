@@ -44,6 +44,8 @@ if is_torch_xla_available():
 else:
     XLA_AVAILABLE = False
 
+from utils.ops_utils import apply_smoothing
+
 
 logger = logging.get_logger(__name__)  # pylint: disable=invalid-name
 
@@ -657,6 +659,7 @@ class StableDiffusion3Pipeline(DiffusionPipeline, SD3LoraLoaderMixin, FromSingle
         callback_on_step_end: Optional[Callable[[int, int, Dict], None]] = None,
         callback_on_step_end_tensor_inputs: List[str] = ["latents"],
         max_sequence_length: int = 256,
+        do_apply_smoothing: bool = False,
     ):
         r"""
         Function invoked when calling the pipeline for generation.
@@ -831,8 +834,11 @@ class StableDiffusion3Pipeline(DiffusionPipeline, SD3LoraLoaderMixin, FromSingle
             latents,
         )
 
+        if do_apply_smoothing:
+            latents = apply_smoothing(latents)
+
         intermediate_latents = dict()
-        print(f"Timesteps: {timesteps}")
+        # print(f"Timesteps: {timesteps}")
 
         # 6. Denoising loop
         with self.progress_bar(total=num_inference_steps) as progress_bar:
@@ -840,13 +846,16 @@ class StableDiffusion3Pipeline(DiffusionPipeline, SD3LoraLoaderMixin, FromSingle
                 if self.interrupt:
                     continue
 
+                # TODO : do something for Dynamic Tokenization
+
                 # expand the latents if we are doing classifier free guidance
                 latent_model_input = torch.cat([latents] * 2) if self.do_classifier_free_guidance else latents
                 # broadcast to batch dimension in a way that's compatible with ONNX/Core ML
                 timestep = t.expand(latent_model_input.shape[0])
 
                 noise_pred = self.transformer(
-                    hidden_states=latent_model_input,
+                    # hidden_states=latent_model_input,
+                    latent_model_input,
                     timestep=timestep,
                     encoder_hidden_states=prompt_embeds,
                     pooled_projections=pooled_prompt_embeds,

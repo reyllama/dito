@@ -2,6 +2,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
+import numbers
 import numpy as np
 from PIL import Image
 from einops import rearrange
@@ -23,9 +24,61 @@ class CustomConv2D(nn.Module):
     def forward(self, x):
         return F.conv2d(x, self.weight, padding=1, groups=self.in_channels)
 
+class GaussianSmoothing(nn.Module):
+    def __init__(self, channels, kernel_size, sigma):
+        super(GaussianSmoothing, self).__init__()
+        if isinstance(kernel_size, numbers.Number):
+            kernel_size = [kernel_size] * 2
+        if isinstance(sigma, numbers.Number):
+            sigma = [sigma] * 2
+
+        # The gaussian kernel is the product of the gaussian function of each dimension.
+        kernel = 1
+        meshgrids = torch.meshgrid(
+            [
+                torch.arange(size, dtype=torch.float32)
+                for size in kernel_size
+            ]
+        )
+        for size, std, mgrid in zip(kernel_size, sigma, meshgrids):
+            mean = (size - 1) / 2
+            kernel *= 1 / (std * torch.sqrt(torch.tensor(2 * torch.pi))) * \
+                      torch.exp(-(((mgrid - mean) / std) ** 2) / 2)
+
+        # Make sure sum of values in gaussian kernel equals 1.
+        kernel = kernel / torch.sum(kernel)
+
+        # Reshape to depthwise convolutional weight
+        kernel = kernel.view(1, 1, *kernel.size())
+        kernel = kernel.repeat(channels, *[1] * (kernel.dim() - 1))
+
+        self.register_buffer('weight', kernel)
+        self.groups = channels
+
+        self.conv = F.conv2d
+
+    def forward(self, input):
+        return self.conv(input, weight=self.weight, groups=self.groups, padding='same')
+
 def create_custom_conv_kernel(kernel, in_channels):
     kernel = kernel.expand(in_channels, 1, 3, 3)
     return kernel
+
+def apply_smoothing(feature_map, kernel_size=5, sigma=1.0):
+    """
+    Apply Gaussian smoothing to a PyTorch tensor feature map.
+    
+    Parameters:
+        feature_map (torch.Tensor): Tensor of shape (batch, channel, height, width).
+        kernel_size (int): Size of the Gaussian kernel. Default is 5.
+        sigma (float): Standard deviation of the Gaussian kernel. Default is 1.0.
+    
+    Returns:
+        torch.Tensor: Smoothed feature map.
+    """
+    _, channels, _, _ = feature_map.shape
+    smoothing = GaussianSmoothing(channels, kernel_size, sigma).to(feature_map.device, feature_map.dtype)
+    return smoothing(feature_map)
 
 def get_feature_pca(features, n_components=3, return_type='pt'):
     '''

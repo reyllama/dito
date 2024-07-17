@@ -2,13 +2,15 @@ import torch
 import math
 from typing import Type, Dict, Any, Tuple, Callable
 
-import merge
-from utils import isinstance_str, init_generator
+from . import merge
+from .utils import isinstance_str, init_generator
 from diffusers.models.attention import _chunked_feed_forward
 
-
 def compute_merge(x: torch.Tensor, tome_info: Dict[str, Any]) -> Tuple[Callable, ...]:
-    original_h, original_w = tome_info["size"]
+    """
+    x: torch.Tensor of shape (2*batch_size, 4096, 1536)
+    """
+    original_h, original_w = tome_info["size"] # 64, 64 (n_patches_h, n_patches_w)
     original_tokens = original_h * original_w
     downsample = int(math.ceil(math.sqrt(original_tokens // x.shape[1])))
 
@@ -38,12 +40,6 @@ def compute_merge(x: torch.Tensor, tome_info: Dict[str, Any]) -> Tuple[Callable,
 
     return m_a, m_m, u_a, u_m  # Okay this is probably not very good
 
-
-
-
-
-
-
 def make_tome_block(block_class: Type[torch.nn.Module]) -> Type[torch.nn.Module]:
     """
     Make a patched class on the fly so we don't have to import any specific modules.
@@ -66,11 +62,6 @@ def make_tome_block(block_class: Type[torch.nn.Module]) -> Type[torch.nn.Module]
     
     return ToMeBlock
 
-
-
-
-
-
 def make_diffusers_tome_block(block_class: Type[torch.nn.Module]) -> Type[torch.nn.Module]:
     """
     Make a patched class for a diffusers model.
@@ -82,9 +73,12 @@ def make_diffusers_tome_block(block_class: Type[torch.nn.Module]) -> Type[torch.
         def forward(
             self,
             hidden_states,
-            encoder_hidden_states,
-            temb
+            encoder_hidden_states=None,
+            temb=None
         ):
+            # print("Hidden States: ", hidden_states.size()) # torch.Size([2, 4096, 1536])
+            # print("Encoder Hidden States: ", encoder_hidden_states.size()) # torch.Size([2, 333, 1536])
+            # print("Token Embeddings: ", temb.size()) # torch.Size([2, 1536])
             m_a, m_m, u_a, u_m = compute_merge(
                 hidden_states,
                 self._tome_info,
@@ -95,9 +89,9 @@ def make_diffusers_tome_block(block_class: Type[torch.nn.Module]) -> Type[torch.
             )
             
             # ToMe m_c
-            print("Before: ", norm_hidden_states.size())
+            # print("Before: ", norm_hidden_states.size())
             norm_hidden_states = m_a(norm_hidden_states)
-            print("After: ", norm_hidden_states.size())
+            # print("After: ", norm_hidden_states.size())
             
             # last layer only
             if self.context_pre_only:
@@ -152,25 +146,14 @@ def make_diffusers_tome_block(block_class: Type[torch.nn.Module]) -> Type[torch.
 
     return ToMeJointTransformerBlock
 
-
-
-
-
-
-def hook_tome_model(model: torch.nn.Module):
+def hook_tome_model(model: torch.nn.Module, patch_size: int = 2):
     """ Adds a forward pre hook to get the image size. This hook can be removed with remove_patch. """
     def hook(module, input):
         # register weight and height
-        module._tome_info["size"] = (input[0].shape[2], input[0].shape[3])
+        # module._tome_info["size"] = (input[0].shape[2], input[0].shape[3])        
+        module._tome_info["size"] = (input[0].shape[2] // patch_size, input[0].shape[3] // patch_size)
 
     model._tome_info["hooks"].append(model.register_forward_pre_hook(hook))
-
-
-
-
-
-
-
 
 def apply_patch(
         model: torch.nn.Module,
@@ -208,6 +191,8 @@ def apply_patch(
 
     is_diffusers = isinstance_str(model, "DiffusionPipeline") or isinstance_str(model, "ModelMixin")
 
+    print(f"[*] Applying ToMe to {'Diffusers' if is_diffusers else 'Stable Diffusion'} ...")
+
     if not is_diffusers:
         if not hasattr(model, "model") or not hasattr(model.model, "diffusion_model"):
             # Provided model not supported
@@ -232,7 +217,7 @@ def apply_patch(
     }
     
     # change _tome_info
-    hook_tome_model(diffusion_model)
+    hook_tome_model(diffusion_model, patch_size=2) # TODO hard-coded for SD3
 
     for block in diffusion_model.transformer_blocks:
         # If for some reason this has a different name, create an issue and I'll fix it
@@ -251,16 +236,14 @@ def apply_patch(
         #     module.use_ada_layer_norm = False
         #     module.use_ada_layer_norm_zero = False
 
+    print("[*] ToMe Applied!")
+
     return model
-
-
-
-
 
 def remove_patch(model: torch.nn.Module):
     """ Removes a patch from a ToMe Diffusion module if it was already patched. """
     # For diffusers
-    model = model.unet if hasattr(model, "unet") else model
+    model = model.transformer if hasattr(model, "transformer") else model
 
     for _, module in model.named_modules():
         if hasattr(module, "_tome_info"):
